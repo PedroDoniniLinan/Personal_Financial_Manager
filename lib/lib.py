@@ -29,9 +29,13 @@ def group_sum(df, select='Valor', group=[], date='month'):
 
 def window_mean(df, select='Valor', window=3):
     dw = df.copy()
-    dw['Avg'] = dw[select].rolling(window=window).mean()
+    dw[select + 'Avg'] = dw[select].rolling(window=window).mean()
     dw = dw.fillna(method='backfill')
     return dw
+
+def window_delta(df, select='Valor'):
+    df[select] = df[select].rolling(window=2).apply(lambda x : x[1] - x[0], raw=True)
+    return df
 
 def row_percentage(df):
     return df.div(df.sum(axis=1), axis=0).apply(lambda x : x*100)
@@ -81,6 +85,61 @@ def calc_balance(earnings, spendings):
     fund = fund.fillna(0)
     return fund
 
+def calc_flows(df):
+    o = df.head(1)['Valor'].item()
+    f = df.tail(1)['Valor'].item()
+    od = df.head(1)['Data'].item()
+    fd = df.tail(1)['Data'].item()
+    status = df.tail(1)['Status'].item()
+    itype = df.tail(1)['Tipo'].item()
+    active = True
+    if status == 'Fechado':
+        active = False
+    gain = f-o
+    duration = (fd - od).days / 30.5
+    total_yield = gain / o
+    monthly_yield = (1+total_yield)**(1/duration)-1 if duration > 0 else 0
+    annual_yield = (1+monthly_yield)**12-1
+    dr = pd.DataFrame({'Valor inicial': [o], 
+                       'Ganho': [gain], 
+                       'Meses': [duration], 
+                       'Rendimento': [total_yield*100],  
+                       'Rendimento mensal': [monthly_yield*100], 
+                       'Rendimento anual': [annual_yield*100],
+                       'Ativo':[active], 
+                       'Tipo': [itype]})
+    return dr
+    
+def calc_flow_gains(df):
+    dflow = df.groupby('ID').apply(window_delta)
+    dflow.pop('ID')
+    dflow = dflow.reset_index(drop=True)
+    dflow = dflow[dflow['Status'] != 'Aberto']
+    dflow.pop('Status')
+    return dflow    
+
+def calc_expected_yield(df):
+    dl = df[df['Meses'] >= 0.7].copy()
+    dl['Prod'] = dl['Rendimento anual'] * dl['Meses']
+    lp_yield = dl['Prod'].sum() / dl['Meses'].sum()
+    
+    dh = df[df['Meses'] < 0.7].copy()
+    dh['Prod'] = dh['Rendimento anual'] * dh['Meses']
+    hp_yield = dh['Prod'].sum() / dh['Meses'].sum()
+    
+    dg = df.copy()
+    dg['Prod'] = dg['Rendimento anual'] * dg['Meses']
+    g_yield = dg['Prod'].sum() / dg['Meses'].sum()
+    
+    return g_yield, lp_yield, hp_yield, df['Meses'].mean()
+
+def change_df_prop(df, font=22, align='center'):
+    heading_properties = [('font-size', str(font-2) + 'px')]
+    cell_properties = [('font-size', str(font) + 'px'), ('text-align', align)]
+
+    dfstyle = [dict(selector="th", props=heading_properties),
+     dict(selector="td", props=cell_properties)]
+    return df.style.set_table_styles(dfstyle).hide_index()
 
 # ========================================================= DATA VIZUALIZATION ========================================================== #
 
