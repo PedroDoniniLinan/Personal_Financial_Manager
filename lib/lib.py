@@ -141,11 +141,18 @@ def change_df_prop(df, font=22, align='center'):
      dict(selector="td", props=cell_properties)]
     return df.style.set_table_styles(dfstyle).hide_index()
 
+def int2pct(i):
+    return str(round(i*100,2)) + '%'
+
+def pct2int(p):
+    return float(p.split('%')[0]) / 100
+
 # ========================================================= DATA VIZUALIZATION ========================================================== #
 
 
 def plot_stacked_area(df, y=None, fig=None, color='#FF5949', name=None):
     fig = go.FigureWidget() if fig is None else fig
+    fig.layout.template = 'plotly_dark'
     if type(df) == list:
         for i, d in enumerate(df):
             fig.add_trace(go.Scatter(x=d.index, y=d[y], marker=dict(color=color[i]), name=name[i], hoverinfo='y', stackgroup='one'))
@@ -158,6 +165,7 @@ def plot_stacked_area(df, y=None, fig=None, color='#FF5949', name=None):
 
 def plot_bar(df, y, fig=None, color='#FF5949', name=None):
     fig = go.FigureWidget() if fig is None else fig
+    fig.layout.template = 'plotly_dark'
     if type(df) == list:
         for i, d in enumerate(df):
             fig.add_trace(go.Bar(x=d.index, y=d[y], marker=dict(color=color[i]), name=name[i], hoverinfo='y'))
@@ -167,6 +175,7 @@ def plot_bar(df, y, fig=None, color='#FF5949', name=None):
 
 def plot_line(df, y, fig=None, color='#FF5949', name=None):
     fig = go.FigureWidget() if fig is None else fig
+    fig.layout.template = 'plotly_dark'
     if type(df) == list:
         for i, d in enumerate(df):
             fig.add_trace(go.Scatter(x=d.index, y=d[y], marker=dict(color=color[i]), name=name[i], hoverinfo='y'))
@@ -176,6 +185,7 @@ def plot_line(df, y, fig=None, color='#FF5949', name=None):
 
 def plot_pie(df, colors=None):
     fig = go.FigureWidget()
+    fig.layout.template = 'plotly_dark'
     fig.add_trace(go.Pie(labels=df.index, values=df, hole=.4, opacity=.9,
                         marker=dict(colors=colors)))
     return fig
