@@ -68,7 +68,6 @@ def calc_funds(earnings, spendings, transfers, check=[0, 0, 0, 0]):
     dmov['Erro'] = dmov['Saldo'] - dmov['Lido']
     return dmov.loc[:, ['Saldo', 'Lido', 'Erro']]    
 
-
 def calc_balance(earnings, spendings):
     spendings.columns = ['Gasto', 'Gasto médio']
     earnings.columns = ['Ganho', 'Ganho médio']
@@ -85,6 +84,7 @@ def calc_balance(earnings, spendings):
     fund = fund.fillna(0)
     return fund
 
+
 def calc_flows(df):
     o = df.head(1)['Valor'].item()
     f = df.tail(1)['Valor'].item()
@@ -96,16 +96,19 @@ def calc_flows(df):
     if status == 'Fechado':
         active = False
     gain = f-o
-    duration = (fd - od).days / 30.5
+    duration = (fd - od).days
     total_yield = gain / o
-    monthly_yield = (1+total_yield)**(1/duration)-1 if duration > 0 else 0
-    annual_yield = (1+monthly_yield)**12-1
+    daily_yield = (1+total_yield)**(1/duration)-1 if duration > 0 else 0
+    monthly_yield = (1+daily_yield)**30.5-1 
+    annual_yield = (1+daily_yield)**365-1 
+    year_profit = f * annual_yield
     dr = pd.DataFrame({'Valor inicial': [o], 
                        'Ganho': [gain], 
-                       'Meses': [duration], 
-                       'Rendimento': [total_yield*100],  
-                       'Rendimento mensal': [monthly_yield*100], 
-                       'Rendimento anual': [annual_yield*100],
+                       'Meses': [duration / 30.5], 
+                       'Rendimento': [int2pct(total_yield)],  
+                       'Rendimento mensal': [int2pct(monthly_yield)], 
+                       'Rendimento anual': [int2pct(annual_yield)],
+                       'Ganho em 1 ano': [year_profit],
                        'Ativo':[active], 
                        'Tipo': [itype]})
     return dr
@@ -118,20 +121,6 @@ def calc_flow_gains(df):
     dflow.pop('Status')
     return dflow    
 
-def calc_expected_yield(df):
-    dl = df[df['Meses'] >= 0.7].copy()
-    dl['Prod'] = dl['Rendimento anual'] * dl['Meses']
-    lp_yield = dl['Prod'].sum() / dl['Meses'].sum()
-    
-    dh = df[df['Meses'] < 0.7].copy()
-    dh['Prod'] = dh['Rendimento anual'] * dh['Meses']
-    hp_yield = dh['Prod'].sum() / dh['Meses'].sum()
-    
-    dg = df.copy()
-    dg['Prod'] = dg['Rendimento anual'] * dg['Meses']
-    g_yield = dg['Prod'].sum() / dg['Meses'].sum()
-    
-    return g_yield, lp_yield, hp_yield, df['Meses'].mean()
 
 def change_df_prop(df, font=22, align='center'):
     heading_properties = [('font-size', str(font-2) + 'px')]
@@ -140,6 +129,99 @@ def change_df_prop(df, font=22, align='center'):
     dfstyle = [dict(selector="th", props=heading_properties),
      dict(selector="td", props=cell_properties)]
     return df.style.set_table_styles(dfstyle).hide_index()
+
+
+def join_prices(row, dprices):
+    di = dprices[dprices['Ticker'] == row['Ticker']]
+    for c in di.columns:
+        if c == 'Ticker':
+            continue
+        month = dt.datetime.strptime(c, '%y-%m-%d').date()
+        if month.month < row['Date'].month:
+            row[c] = 0
+        else:
+            row[c] = di[c].item()
+    return row
+
+def generate_invest_table(dport, dprices):
+    dport = dport.apply(lambda x : join_prices(x, dprices), axis=1)
+    dinvest = pd.DataFrame(columns=['ID','Valor','Data','Status','Tipo'])
+    for i in range(dport.shape[0]):
+        di = pd.DataFrame([[float(100+i), dport.iloc[i]['Buy']*dport.iloc[i]['Shares'], dport.iloc[i]['Date'], 'Aberto', dport.iloc[i]['Ticker']]], 
+                          columns=['ID','Valor','Data','Status','Tipo'])
+        dinvest = pd.concat([dinvest, di])
+        for j in range(5, dport.shape[1]):
+            date = dt.datetime.strptime(dport.columns[j], '%y-%m-%d').date()
+            if date > dt.date.today():
+                date = dt.date.today()
+            if date > dport.iloc[i]['Date']:
+                dj = pd.DataFrame([[float(100.0+i), dport.iloc[i, j]*dport.iloc[i]['Shares'], date, 'Mes', dport.iloc[i]['Ticker']]], 
+                                  columns=['ID','Valor','Data','Status','Tipo'])
+                dinvest = pd.concat([dinvest, dj])
+    return dinvest
+
+
+def calc_stocks_feat(dreturn, dstocks, dquote, assets, industry):    
+    dfull = dreturn.join(dstocks.set_index('Ticker'), on='Ticker', how='inner')
+    dfull['Price'] = dquote['2019']
+
+    dfull['Geo'] = dfull[assets].idxmax(axis=1)
+    dfull['Domain'] = dfull[industry].idxmax(axis=1)
+    dfull['Asset'] = dfull[assets].idxmax(axis=1).apply(lambda x : x if (x == 'Bonds' or x == 'Commod') else 'Equity')
+
+    dfull['Risk'] = dfull['Volatility'].apply(lambda x : int2pct(x/100))
+    dfull['Tax'] = dfull['TER'].apply(lambda x : int2pct(x/100))
+    dfull['Return'] = dfull['Predicted'].apply(int2pct)
+    dfull['YTD'] = dfull[str(dt.date.today().year)].apply(int2pct)
+    weights = [0.05, 0.5, 0.35, 0.1]
+    dfull['Score'] = (10+(30-dfull['Price'])/27)*weights[0] + dfull['Predicted']/0.3*10*weights[1] + (10+(7-dfull['Volatility'])/2.3)*weights[2] + (10-dfull['TER']/0.2)*weights[3]
+
+    return dfull
+
+
+def calc_portfolio(dport, dfull, assets, industry):
+    dport_full = dport.join(dfull[['Ticker', 'Price'] + assets + industry].set_index('Ticker'), on='Ticker')
+
+    dport_full['Profit'] = (dport_full['Price'] - dport_full['Buy']) * dport_full['Shares']
+    dport_full['Value'] = (dport_full['Price'] * dport_full['Shares'])
+
+    dport_full['Yield'] = (dport_full['Profit'] / (dport_full['Buy'] * dport_full['Shares']))
+    dport_full['Annual yield'] = (((1 + dport_full['Yield']) ** (1/(dt.date.today() - dport_full['Date']).apply(lambda x : x.days))) ** 365 - 1)
+    dport_full['Year profit'] = dport_full['Price'] * dport_full['Shares'] * dport_full['Annual yield']
+
+    dport_full['Keep'] = dport_full['Ticker'].apply(lambda x : dfull[dfull['Ticker'] == x]['TER'].item()) * dport_full['Price'] * dport_full['Shares'] / 100
+    dport_full['Sell Tax'] = (dport_full['Profit'] - (dport_full['Buy Tax'] + dport_full['Keep'])) * 0.15
+    dport_full['Total Tax'] = dport_full['Buy Tax'] + dport_full['Keep'] + dport_full['Sell Tax']
+    dport_full['Tax'] = (dport_full['Total Tax'] / dport_full['Profit']).apply(int2pct)
+
+    dport_full['Yield (Liq.)'] = ((dport_full['Profit'] - dport_full['Total Tax']) / (dport_full['Buy'] * dport_full['Shares']))
+    dport_full['Annual yield (Liq.)'] = (((1 + dport_full['Yield (Liq.)']) ** (1/(dt.date.today() - dport_full['Date']).apply(lambda x : x.days))) ** 365 - 1)
+    dport_full['Year profit (Liq.)'] = dport_full['Price'] * dport_full['Shares'] * dport_full['Annual yield (Liq.)']
+
+    dport_full['Yield %'] = dport_full['Yield'].apply(int2pct)
+    dport_full['Annual yield %'] = dport_full['Annual yield'].apply(int2pct)
+    dport_full['Yield (Liq.) %'] = dport_full['Yield (Liq.)'].apply(int2pct)
+    dport_full['Annual yield (Liq.) %'] = dport_full['Annual yield (Liq.)'].apply(int2pct)
+
+    for c in industry:
+        dport_full[c] = dport_full[c] * dport_full['Value'] / dport_full['Value'].sum()
+    
+    return dport_full
+
+def add_bonds(dport_full, dflow, assets):
+    profit = dflow['Ganho'].sum()
+    value = dflow[dflow['Ativo']]['Valor inicial'].sum() + dflow[dflow['Ativo']]['Ganho'].sum()
+    yields = profit / dflow['Valor inicial'].sum()
+    di = pd.DataFrame([['NU', value, profit, yields, int2pct(yields), 0, 0, 0, 0, 100, 0, 0]], columns=['Ticker', 'Value', 'Profit', 'Yield', 'Yield %'] + assets)
+    dport_bonds = pd.concat([dport_full, di], sort=False).reset_index(drop=True)
+    return dport_bonds
+
+def calc_distribution(dport, assets, industry):
+    for c in assets:
+        dport[c] = dport[c] * dport['Value'] / dport['Value'].sum()
+
+    return dport
+
 
 def int2pct(i):
     return str(round(i*100,2)) + '%'
@@ -150,43 +232,50 @@ def pct2int(p):
 # ========================================================= DATA VIZUALIZATION ========================================================== #
 
 
-def plot_stacked_area(df, y=None, fig=None, color='#FF5949', name=None):
+def plot_stacked_area(df, y=None, fig=None, color='#FF5949', domain=dict(x=[0,1]), name=None):
     fig = go.FigureWidget() if fig is None else fig
     fig.layout.template = 'plotly_dark'
     if type(df) == list:
         for i, d in enumerate(df):
             fig.add_trace(go.Scatter(x=d.index, y=d[y], marker=dict(color=color[i]), name=name[i], hoverinfo='y', stackgroup='one'))
+            # fig.add_trace(go.Scatter(x=d.index, y=d[y], marker=dict(color=color[i]), domain=domain, name=name[i], hoverinfo='y', stackgroup='one'))
     elif y is None:
         for i, c in enumerate(df.columns):
             fig.add_trace(go.Scatter(x=df.index, y=df[c], marker=dict(color=color[i]), name=name[i], hoverinfo='y', stackgroup='one'))
+            # fig.add_trace(go.Scatter(x=df.index, y=df[c], marker=dict(color=color[i]), domain=domain, name=name[i], hoverinfo='y', stackgroup='one'))
     else:
+        # fig.add_trace(go.Scatter(x=df.index, y=df[y], marker=dict(color=color), domain=domain, name=name, stackgroup='one'))
         fig.add_trace(go.Scatter(x=df.index, y=df[y], marker=dict(color=color), name=name, stackgroup='one'))
     return fig
 
-def plot_bar(df, y, fig=None, color='#FF5949', name=None):
+def plot_bar(df, y, fig=None, color='#FF5949', domain=dict(x=[0,1]), name=None):
     fig = go.FigureWidget() if fig is None else fig
     fig.layout.template = 'plotly_dark'
     if type(df) == list:
         for i, d in enumerate(df):
             fig.add_trace(go.Bar(x=d.index, y=d[y], marker=dict(color=color[i]), name=name[i], hoverinfo='y'))
+            # fig.add_trace(go.Bar(x=d.index, y=d[y], marker=dict(color=color[i]), domain=domain, name=name[i], hoverinfo='y'))
     else:
         fig.add_trace(go.Bar(x=df.index, y=df[y], marker=dict(color=color), name=name))
+        # fig.add_trace(go.Bar(x=df.index, y=df[y], marker=dict(color=color), domain=domain, name=name))
     return fig
 
-def plot_line(df, y, fig=None, color='#FF5949', name=None):
+def plot_line(df, y, fig=None, color='#FF5949', domain=dict(x=[0,1]), name=None):
     fig = go.FigureWidget() if fig is None else fig
     fig.layout.template = 'plotly_dark'
     if type(df) == list:
         for i, d in enumerate(df):
             fig.add_trace(go.Scatter(x=d.index, y=d[y], marker=dict(color=color[i]), name=name[i], hoverinfo='y'))
+            # fig.add_trace(go.Scatter(x=d.index, y=d[y], marker=dict(color=color[i]), domain=domain, name=name[i], hoverinfo='y'))
     else:
         fig.add_trace(go.Scatter(x=df.index, y=df[y], marker=dict(color=color), name=name))
+        # fig.add_trace(go.Scatter(x=df.index, y=df[y], marker=dict(color=color), domain=domain, name=name))
     return fig
 
-def plot_pie(df, colors=None):
-    fig = go.FigureWidget()
+def plot_pie(df, fig=None, colors=None, domain=dict(x=[0,1]), name=None):
+    fig = go.FigureWidget() if fig is None else fig
     fig.layout.template = 'plotly_dark'
-    fig.add_trace(go.Pie(labels=df.index, values=df, hole=.4, opacity=.9,
-                        marker=dict(colors=colors)))
+    fig.add_trace(go.Pie(labels=df.index, values=df, hole=.4, opacity=.9, name=name,
+                        marker=dict(colors=colors), domain=domain))
     return fig
 
