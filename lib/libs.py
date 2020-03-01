@@ -13,12 +13,12 @@ month_num = {'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6, 'Jul': 
 # ========================================================== DATA MANIPULATION ========================================================== #
 
 
-def group_sum(df, select='Valor', group=[], date='month'):
+def group_sum(df, select='Valor', group=[], date='month', date_col='Data'):
     if date == 'year':
         calendar = df['Data'].apply(lambda x : x.year)
         group.insert(0, calendar)
     elif date is not None:
-        calendar = df['Data'].apply(lambda x : x.year*100 + x.month)
+        calendar = df[date_col].apply(lambda x : x.year*100 + x.month)
         group.insert(0, calendar)
     dg = df.groupby(group)[select].sum().to_frame()
     if len(group) > 1:
@@ -136,8 +136,8 @@ def join_prices(row, dprices):
     for c in di.columns:
         if c == 'Ticker':
             continue
-        month = dt.datetime.strptime(c, '%y-%m-%d').date()
-        if month.month < row['Date'].month:
+        date = dt.datetime.strptime(c, '%y-%m-%d').date()
+        if date < row['Date']:
             row[c] = 0
         else:
             row[c] = di[c].item()
@@ -179,9 +179,7 @@ def calc_stocks_feat(dreturn, dstocks, dquote, assets, industry):
     return dfull
 
 
-def calc_portfolio(dport, dfull, assets, industry):
-    dport_full = dport.join(dfull[['Ticker', 'Price'] + assets + industry].set_index('Ticker'), on='Ticker')
-
+def calc_portfolio(dport_full):
     dport_full['Profit'] = (dport_full['Price'] - dport_full['Buy']) * dport_full['Shares']
     dport_full['Value'] = (dport_full['Price'] * dport_full['Shares'])
 
@@ -189,7 +187,7 @@ def calc_portfolio(dport, dfull, assets, industry):
     dport_full['Annual yield'] = (((1 + dport_full['Yield']) ** (1/(dt.date.today() - dport_full['Date']).apply(lambda x : x.days))) ** 365 - 1)
     dport_full['Year profit'] = dport_full['Price'] * dport_full['Shares'] * dport_full['Annual yield']
 
-    dport_full['Keep'] = dport_full['Ticker'].apply(lambda x : dfull[dfull['Ticker'] == x]['TER'].item()) * dport_full['Price'] * dport_full['Shares'] / 100
+    dport_full['Keep'] = dport_full['TER'] * dport_full['Price'] * dport_full['Shares'] / 100
     dport_full['Sell Tax'] = (dport_full['Profit'] - (dport_full['Buy Tax'] + dport_full['Keep'])) * 0.15
     dport_full['Total Tax'] = dport_full['Buy Tax'] + dport_full['Keep'] + dport_full['Sell Tax']
     dport_full['Tax'] = (dport_full['Total Tax'] / dport_full['Profit']).apply(int2pct)
@@ -202,11 +200,16 @@ def calc_portfolio(dport, dfull, assets, industry):
     dport_full['Annual yield %'] = dport_full['Annual yield'].apply(int2pct)
     dport_full['Yield (Liq.) %'] = dport_full['Yield (Liq.)'].apply(int2pct)
     dport_full['Annual yield (Liq.) %'] = dport_full['Annual yield (Liq.)'].apply(int2pct)
-
-    for c in industry:
-        dport_full[c] = dport_full[c] * dport_full['Value'] / dport_full['Value'].sum()
     
     return dport_full
+
+def calc_bonds_portfolio(dport_full, dflow, assets):
+    profit = dflow['Ganho'].sum()
+    value = dflow[dflow['Ativo']]['Valor inicial'].sum() + dflow[dflow['Ativo']]['Ganho'].sum()
+    yields = profit / dflow['Valor inicial'].sum()
+    di = pd.DataFrame([['NU', value, profit, yields, int2pct(yields), 0, 0, 0, 0, 100, 0, 0]], columns=['Ticker', 'Value', 'Profit', 'Yield', 'Yield %'] + assets)
+    dport_bonds = pd.concat([dport_full, di], sort=False).reset_index(drop=True)
+    return dport_bonds
 
 def add_bonds(dport_full, dflow, assets):
     profit = dflow['Ganho'].sum()
@@ -219,7 +222,8 @@ def add_bonds(dport_full, dflow, assets):
 def calc_distribution(dport, assets, industry):
     for c in assets:
         dport[c] = dport[c] * dport['Value'] / dport['Value'].sum()
-
+    for c in industry:
+        dport[c] = dport[c] * dport['Value'] / dport['Value'].sum()
     return dport
 
 
