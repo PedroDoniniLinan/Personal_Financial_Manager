@@ -12,11 +12,11 @@ from lib import data as d
 def read_invest():
     # bonds values log
     dinv = pd.read_csv('br_invest.csv')
-    dinv['Data'] = dinv['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%y').date())
+    dinv['Data'] = dinv['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
 
     # portfolio acquisition log
     dport = pd.read_csv('br_portfolio.csv')
-    dport['Date'] = dport['Date'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%y').date())
+    dport['Date'] = dport['Date'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
     
     # stocks prices
     dprices = pd.read_csv('br_prices.csv')
@@ -42,12 +42,12 @@ def read_finance():
 
     # income
     dg = pd.read_csv('br_ganhos.csv')
-    dg['Data'] = dg['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%y').date())
+    dg['Data'] = dg['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
     dg = pd.concat([dg, dflow], sort=False).reset_index(drop=True)
 
     # expenses
     df = pd.read_csv('br_gastos.csv')
-    df['Data'] = df['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%y').date())
+    df['Data'] = df['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
 
     # tranferences
     dtr = pd.read_csv('br_transf.csv')
@@ -215,11 +215,15 @@ def calc_portfolio(dport_full):
     
     return dport_full
 
-def add_bonds_to_port(dport_full, dflow, assets):
+def calc_bonds_portfolio(dflow, assets):
     profit = dflow['Ganho'].sum()
     value = dflow[dflow['Ativo']]['Valor inicial'].sum() + dflow[dflow['Ativo']]['Ganho'].sum()
     yields = profit / dflow['Valor inicial'].sum()
-    di = pd.DataFrame([['NU', value, profit, yields, d.int2pct(yields), 0, 0, 0, 0, 100, 0, 0]], columns=['Ticker', 'Value', 'Profit', 'Yield', 'Yield %'] + assets)
+    di = pd.DataFrame([['NU', value, 1, value, 0, 0.03, profit, yields, d.int2pct(yields), 0, 0, 0, 0, 100, 0, 0]], columns=['Ticker', 'Buy', 'Shares', 'Value', 'Volatility', 'Predicted', 'Profit', 'Yield', 'Yield %'] + assets)
+    return di
+
+def add_bonds_to_port(dport_full, dflow, assets):
+    di = calc_bonds_portfolio(dflow, assets)
     dport_bonds = pd.concat([dport_full, di], sort=False).reset_index(drop=True)
     return dport_bonds
 
@@ -308,3 +312,39 @@ def analyze_port(dport, dfeat, dprices, assets, industry):
         dport_full['Total profit'] = (dport_full['Price']-dport_full['Buy']) * dport_full['Shares']
         dport_full['Date'] = date
         dports = pd.concat([dports, dport_full[select]]).reset_index(drop=True)
+
+# ======================================= PORTFOLIO SIMULATION ==================================== #
+
+def addStocks(dport, stocks, dfull):
+    dnew = pd.DataFrame(stocks, columns=['Ticker', 'Shares', 'Buy Tax'])
+    dnew = dnew.join(dfull[['Ticker', 'Price']].set_index('Ticker'), on='Ticker')
+    dnew['Buy'] = dnew['Price']
+    dport_n = dport.append(dnew, sort=False)
+    dport_n.pop('Price')
+    dport_n.reset_index(drop=True)
+    return dport_n
+
+def simulatePortfolio(dport, dflow, dfull, assets, industry, bonds=None):
+    dport_full = dport.join(dfull[['Ticker', 'Price', 'TER', 'Predicted', 'Volatility'] + assets + industry].set_index('Ticker'), on='Ticker')
+    dport_full['Volatility'] = dport_full['Volatility'] / 100
+    dport_full = calc_portfolio(dport_full)
+    
+    dbonds = calc_bonds_portfolio(dflow, assets)
+    if bonds is not None:
+        dbonds['Value'] = bonds
+        dbonds['Buy'] = bonds
+    dport_bonds = dport_full.append(dbonds, sort=False)
+    dport_bonds = calc_distribution(dport_bonds, assets, industry)
+    return dport_bonds
+
+def calc_port_perfo(dport):
+    dport['Return'] = dport['Predicted'] * dport['Value'] / dport['Value'].sum()
+    dport['Risk'] = dport['Volatility'] * dport['Value'] / dport['Value'].sum()
+    dcurrent = pd.DataFrame({
+        'Value': [dport['Value'].sum()],
+        'Profit': [dport['Profit'].sum()],
+        'Return': [d.int2pct(dport['Return'].sum())],
+        'Risk': [d.int2pct(dport['Risk'].sum())],
+    })
+    dcurrent['Yield'] = (dcurrent['Profit'] / dcurrent['Value']).apply(d.int2pct)
+    return dcurrent
