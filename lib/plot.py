@@ -29,7 +29,6 @@ def plot(df, x, fig, palette, y=None, plot_type='line', row=1, col=1, name=None)
     return fig
 
 def plot_pie(df, fig, palette, domain=dict(x=[0,1]), name=None):
-    # df = df.drop(df.index[0])
     df = df.sort_values(ascending=False)
     colors = [palette[c] for c in df.index]
     fig.add_trace(go.Pie(labels=df.index, values=df, hole=.4, opacity=.9, name=name,

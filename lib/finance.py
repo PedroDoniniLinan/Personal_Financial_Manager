@@ -11,15 +11,15 @@ from lib import data as d
 
 def read_invest():
     # bonds values log
-    dinv = pd.read_csv('br_invest.csv')
+    dinv = pd.read_csv('data/br_invest.csv')
     dinv['Data'] = dinv['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
 
     # portfolio acquisition log
-    dport = pd.read_csv('br_portfolio.csv')
+    dport = pd.read_csv('data/br_portfolio.csv')
     dport['Date'] = dport['Date'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
     
     # stocks prices
-    dprices = pd.read_csv('br_prices.csv')
+    dprices = pd.read_csv('data/br_prices.csv')
     dinv_port = generate_invest_table(dport, dprices)
     return dinv, dport, dinv_port, dprices
 
@@ -41,16 +41,16 @@ def read_finance():
     dflow['Valor'] = dflow['ValorDelta']
 
     # income
-    dg = pd.read_csv('br_ganhos.csv')
+    dg = pd.read_csv('data/br_ganhos.csv')
     dg['Data'] = dg['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
     dg = pd.concat([dg, dflow], sort=False).reset_index(drop=True)
 
     # expenses
-    df = pd.read_csv('br_gastos.csv')
+    df = pd.read_csv('data/br_gastos.csv')
     df['Data'] = df['Data'].apply(lambda x : dt.datetime.strptime(str(x),'%d/%m/%Y').date())
 
     # tranferences
-    dtr = pd.read_csv('br_transf.csv')
+    dtr = pd.read_csv('data/br_transf.csv')
 
     return dg, df, dtr
 
@@ -62,7 +62,7 @@ def generate_invest_table(dport, dprices):
                           columns=['ID','Valor','Data','Status','Tipo'])
         dinvest = pd.concat([dinvest, di])
         for j in range(5, dport.shape[1]):
-            date = dt.datetime.strptime(dport.columns[j], '%y-%m-%d').date()
+            date = dt.datetime.strptime(dport.columns[j], '%d/%m/%Y').date()
             if date > dt.date.today():
                 date = dt.date.today()
             if date > dport.iloc[i]['Date']:
@@ -76,7 +76,7 @@ def join_prices(row, dprices):
     for c in di.columns:
         if c == 'Ticker':
             continue
-        date = dt.datetime.strptime(c, '%y-%m-%d').date()
+        date = dt.datetime.strptime(c, '%d/%m/%Y').date()
         if date < row['Date']:
             row[c] = 0
         else:
@@ -251,7 +251,7 @@ def calc_port_months(dport, dfeat, dprices, assets, industry):
     for i in range(cols.shape[0]):
         if i < 2:
             continue
-        date = dt.datetime.strptime(cols[i], '%y-%m-%d').date()
+        date = dt.datetime.strptime(cols[i], '%d/%m/%Y').date()
         dport_full = dport.join(dfeat[['Ticker', 'Price', 'TER'] + assets + industry].set_index('Ticker'), on='Ticker')
         dport_full = dport_full.join(dprices.set_index('Ticker'), on='Ticker')
         dport_full = dport_full[dport_full['Date'] <= date]
@@ -271,7 +271,7 @@ def calc_bonds_months(dprices, dbond, assets, industry):
     for c in dprices.columns:
         if c == 'Ticker':
             continue
-        date = dt.datetime.strptime(c, '%y-%m-%d').date()        
+        date = dt.datetime.strptime(c, '%d/%m/%Y').date()        
         dflow = dbond[dbond['Data'] <= date].groupby('ID').apply(calc_flows)
         dflow = dflow.reset_index(level=[0, 1])
         dflow.pop('level_1')
@@ -300,7 +300,7 @@ def analyze_port(dport, dfeat, dprices, assets, industry):
     for i in range(cols.shape[0]):
         if i < 2:
             continue
-        date = dt.datetime.strptime(cols[i], '%y-%m-%d').date()
+        date = dt.datetime.strptime(cols[i], '%d/%m/%Y').date()
         dport_full = dport.join(dfeat[['Ticker', 'Price', 'TER'] + assets + industry].set_index('Ticker'), on='Ticker')
         dport_full = dport_full.join(dprices.set_index('Ticker'), on='Ticker')
         dport_full = dport_full[dport_full['Date'] <= date]
