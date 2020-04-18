@@ -105,6 +105,17 @@ def calc_account_funds(dincome, dexpense, dtransfer, verif_vals):
     djoin.index.name = ''
     return djoin.loc[:, ['Saldo', 'Lido', 'Erro']]
 
+def calc_balance(dg, df):
+    monthly_income = d.window(d.pivot_agg(dg, val='Valor', idx=['Data'], agg={'Valor':np.sum}))
+    monthly_expenses = d.window(d.pivot_agg(df, val='Valor', idx=['Data'], agg={'Valor':np.sum}))
+    monthly_expenses_p = d.window(d.pivot_agg(df[df['Pagamento'] != 'Pais'], val='Valor', idx=['Data'], agg={'Valor':np.sum}))
+
+    monthly_income.columns = ['Data', 'Renda', 'Renda média']
+    monthly_expenses.columns = ['Data', 'Despesa', 'Despesa média']
+    monthly_expenses_p.columns = ['Data', 'Despesa real', 'Despesa real média']
+
+    return monthly_income.join(monthly_expenses.set_index('Data'), on='Data').join(monthly_expenses_p.set_index('Data'), on='Data')
+
 def calc_fund(balance, income='Renda', expense='Despesa real'):
     fund = pd.DataFrame()
     fund['Data'] = balance['Data']
@@ -348,3 +359,29 @@ def calc_port_perfo(dport):
     })
     dcurrent['Yield'] = (dcurrent['Profit'] / dcurrent['Value']).apply(d.int2pct)
     return dcurrent
+
+# ======================================= GOAL PLANNER ==================================== #
+
+def predict_fund(income, expenses, yields, initial_gain, initial_fund, years):
+    delta = (initial_gain + (income - (expenses))*(years-1))/years
+
+    future_funds = [initial_fund for i in  range(len(yields))]
+    for y in range(years):
+        for i in range(len(future_funds)):
+            future_funds[i] += delta
+            future_funds[i] *=  (1 + yields[i])
+
+    dfuture = pd.DataFrame([[5*f/(10**6), f/(10**6)] for f in future_funds], columns=['BRL', 'EUR'])
+    dfuture['Yields'] = [str(y) + '%' for y in yields]
+    return dfuture[['Yields', 'EUR', 'BRL']]
+
+def predict_goal(goal_income, yields, life_expectancy):
+    retirement_funds = [goal_income for i in range(len(yields))]
+    for y in range(life_expectancy-1):
+        for i in range(len(retirement_funds)):
+            retirement_funds[i] /= (1+yields[i])
+            retirement_funds[i] += goal_income
+
+    dfuture = pd.DataFrame([[5*f/(10**6), f/(10**6)] for f in retirement_funds], columns=['BRL', 'EUR'])
+    dfuture['Yields'] = [str(y) + '%' for y in yields]
+    return dfuture[['Yields', 'EUR', 'BRL']] 
